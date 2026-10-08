@@ -204,6 +204,38 @@ func TestBuildEnv(t *testing.T) {
 	require.Equal(t, "crush", envMap["AI_AGENT"])
 }
 
+func TestBuildEnvOmitsValuesContainingNUL(t *testing.T) {
+	t.Parallel()
+
+	env := BuildEnv(EventPreToolUse, "bash", "sess-1", "/work", "/project", `{"command":"printf 'a\u0000b'","file_path":"/tmp/a\u0000b"}`)
+
+	for _, e := range env {
+		require.NotContains(t, e, "\x00")
+	}
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitFirst(e, "=")
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+	require.NotContains(t, envMap, "CRUSH_TOOL_INPUT_COMMAND")
+	require.NotContains(t, envMap, "CRUSH_TOOL_INPUT_FILE_PATH")
+	require.Equal(t, "bash", envMap["CRUSH_TOOL_NAME"])
+}
+
+func TestRunnerRunsHookWhenToolInputContainsNUL(t *testing.T) {
+	t.Parallel()
+	hookCfg := config.HookConfig{
+		Command: `cat >/dev/null; echo '{"decision":"allow","context":"ran"}'`,
+	}
+	r := NewRunner([]config.HookConfig{hookCfg}, t.TempDir(), t.TempDir())
+	result, err := r.Run(context.Background(), EventPreToolUse, "sess", "bash", `{"command":"printf 'a\u0000b'"}`)
+	require.NoError(t, err)
+	require.Equal(t, DecisionAllow, result.Decision)
+	require.Equal(t, "ran", result.Context)
+}
+
 func splitFirst(s, sep string) []string {
 	before, after, found := strings.Cut(s, sep)
 	if !found {

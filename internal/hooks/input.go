@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/charmbracelet/crush/internal/shell"
@@ -64,15 +65,23 @@ func BuildEnv(eventName, toolName, sessionID, cwd, projectDir, toolInputJSON str
 
 	// Extract tool-specific env vars from the JSON input.
 	if toolInputJSON != "" {
-		if cmd := gjson.Get(toolInputJSON, "command"); cmd.Exists() {
+		if cmd := gjson.Get(toolInputJSON, "command"); cmd.Exists() && !containsNUL(cmd.String()) {
 			env = append(env, fmt.Sprintf("CRUSH_TOOL_INPUT_COMMAND=%s", cmd.String()))
 		}
-		if fp := gjson.Get(toolInputJSON, "file_path"); fp.Exists() {
+		if fp := gjson.Get(toolInputJSON, "file_path"); fp.Exists() && !containsNUL(fp.String()) {
 			env = append(env, fmt.Sprintf("CRUSH_TOOL_INPUT_FILE_PATH=%s", fp.String()))
 		}
 	}
 
-	return env
+	return slices.DeleteFunc(env, containsNUL)
+}
+
+// containsNUL reports whether s holds a NUL byte. exec rejects any
+// environment entry containing one, which would stop the hook from running
+// at all, so such values are left out; hooks still get the full tool input
+// on stdin.
+func containsNUL(s string) bool {
+	return strings.IndexByte(s, 0) >= 0
 }
 
 // parseStdout parses the JSON output from a hook command's stdout.
